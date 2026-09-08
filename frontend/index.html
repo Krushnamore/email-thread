@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Email Forensic Intelligence Platform</title>
+ <link rel="stylesheet" href="index.css">
+</head>
+<body>
+  
+<header>
+  <div>
+    <h1>Email Forensic Intelligence <span class="badge">SIH26106</span></h1>
+    <div class="sub">Blockchain &amp; Cybersecurity · Phishing / Spoofing / BEC Detection</div>
+  </div>
+  <nav class="toplevel">
+    <button id="nav-analyze" class="active" onclick="showView('analyze')">Analyze &amp; Cases</button>
+    <button id="nav-campaigns" onclick="showView('campaigns')">Campaigns</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ================= ANALYZE VIEW ================= -->
+  <div id="view-analyze" class="view active">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="eml" onclick="switchTab('eml')">Upload .eml</button>
+      <button class="tab-btn" data-tab="headers" onclick="switchTab('headers')">Paste Headers</button>
+      <button class="tab-btn" data-tab="text" onclick="switchTab('text')">Paste Text</button>
+    </div>
+
+    <div class="card" id="tab-eml">
+      <h2>Upload an .eml file <small>Full forensic depth — all headers available</small></h2>
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('emlFile').click()">
+        <input type="file" id="emlFile" accept=".eml" />
+        <div id="dropzoneLabel">Drop an .eml file here, or click to browse</div>
+      </div>
+      <button class="btn" onclick="submitEml()">Analyze .eml</button>
+    </div>
+
+    <div class="card" id="tab-headers" style="display:none;">
+      <h2>Paste raw headers <small>Gmail "Show original" / Outlook "Internet headers"</small></h2>
+      <textarea id="headersInput" placeholder="Paste full raw headers (and body, if available) here..."></textarea>
+      <button class="btn" onclick="submitPaste('headers')">Analyze headers</button>
+    </div>
+
+    <div class="card" id="tab-text" style="display:none;">
+      <h2>Paste visible email text only <small>Degraded mode — header-dependent checks are skipped</small></h2>
+      <textarea id="textInput" placeholder="Paste just the visible text of the email..."></textarea>
+      <button class="btn" onclick="submitPaste('text')">Analyze text</button>
+    </div>
+
+    <div id="analyzeError"></div>
+    <div id="loadingIndicator" style="display:none;" class="muted">Analyzing…</div>
+
+    <!-- ================= RESULTS ================= -->
+    <div id="results" style="display:none;">
+
+      <div class="card" id="limitedForensicsNotice" style="display:none;">
+        <div class="disclaimer">⚠ Limited forensics mode: only visible text was available. Header-dependent checks (SPF/DKIM/DMARC, relay chain) were skipped rather than guessed.</div>
+      </div>
+
+      <div class="card">
+        <h2>Threat Score &amp; Verdict</h2>
+        <div class="gauge-wrap">
+          <div class="gauge">
+            <svg width="140" height="140" viewBox="0 0 140 140">
+              <circle cx="70" cy="70" r="60" stroke="#262d47" stroke-width="12" fill="none"/>
+              <circle id="gaugeArc" cx="70" cy="70" r="60" stroke="#5b8cff" stroke-width="12" fill="none"
+                      stroke-linecap="round" stroke-dasharray="377" stroke-dashoffset="377"/>
+            </svg>
+            <div class="score-label">
+              <div class="num" id="scoreNum">0</div>
+              <div class="lbl">/ 100</div>
+            </div>
+          </div>
+          <div>
+            <span class="verdict-pill" id="verdictPill">—</span>
+            <div class="muted" style="margin-top:8px;" id="mlNote"></div>
+          </div>
+        </div>
+        <h2 style="margin-top:20px;">Reasons</h2>
+        <ul class="reasons" id="reasonsList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Machine Learning Assessment</h2>
+        <div class="muted" id="mlExplanation" style="margin-bottom:8px;"></div>
+        <ul class="reasons" id="mlFeaturesList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Recommended Actions</h2>
+        <div class="muted" id="recSummary" style="margin-bottom:8px;"></div>
+        <ul class="reasons" id="recActionsList"></ul>
+        <div class="muted" id="recAttributionNote" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h2>Attribution</h2>
+          <table class="kv">
+            <tr><td>Label</td><td id="attrLabel">—</td></tr>
+            <tr><td>Confidence</td><td id="attrConfidence">—</td></tr>
+            <tr><td>Corroborating signals</td><td id="attrSignals">—</td></tr>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Sender &amp; Authentication</h2>
+          <table class="kv">
+            <tr><td>From</td><td id="senderFrom">—</td></tr>
+            <tr><td>From domain</td><td id="senderDomain">—</td></tr>
+            <tr><td>SPF</td><td id="authSpf">—</td></tr>
+            <tr><td>DKIM</td><td id="authDkim">—</td></tr>
+            <tr><td>DMARC</td><td id="authDmarc">—</td></tr>
+            <tr><td>Return-Path mismatch</td><td id="returnPathMismatch">—</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h2>Geo / Network Intelligence</h2>
+          <table class="kv">
+            <tr><td>Earliest public IP</td><td id="intelIp">—</td></tr>
+            <tr><td>Country / City</td><td id="intelGeo">—</td></tr>
+            <tr><td>ISP / Org</td><td id="intelOrg">—</td></tr>
+            <tr><td>Tor exit node</td><td id="intelTor">—</td></tr>
+            <tr><td>Known VPN</td><td id="intelVpn">—</td></tr>
+            <tr><td>Cloud hosting</td><td id="intelCloud">—</td></tr>
+            <tr><td>Domain age</td><td id="intelWhois">—</td></tr>
+          </table>
+          <div class="disclaimer">Location reflects probable sending infrastructure only — never a confirmed attacker location.</div>
+        </div>
+        <div class="card">
+          <h2>Relay Path <small>oldest hop first</small></h2>
+          <div id="relayChain" class="muted">No relay chain available.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>URL &amp; Attachment Indicators</h2>
+        <div id="urlIndicators" class="muted">No suspicious URLs found.</div>
+        <div id="attachmentIndicators" class="muted" style="margin-top:10px;">No attachments.</div>
+      </div>
+
+      <div class="card">
+        <h2>Case</h2>
+        <table class="kv">
+          <tr><td>Case ID</td><td id="caseId">—</td></tr>
+          <tr><td>Campaign</td><td id="caseCampaign">—</td></tr>
+        </table>
+        <div class="report-actions">
+          <button class="btn download" id="downloadReportBtn" onclick="downloadReport(currentCaseId, this)" disabled>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+            Download PDF
+          </button>
+        </div>
+        <div class="report-hint">Full forensic report — attribution, evidence hash, and complete signal breakdown, formatted for reading or sharing.</div>
+      </div>
+    </div>
+
+    <!-- ================= CASE LIST (merged dashboard) ================= -->
+    <div class="card">
+      <h2>Case Reports <small>All analyzed emails — newest first</small></h2>
+      <div class="filters">
+        <select id="verdictFilter" onchange="onFilterChange()">
+          <option value="">All verdicts</option>
+          <option value="LOW">LOW</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HIGH">HIGH</option>
+          <option value="CRITICAL">CRITICAL</option>
+        </select>
+        <button class="btn secondary" onclick="loadCases()">Refresh</button>
+      </div>
+      <div class="case-list-scroll" id="casesTableWrap"><div class="empty">Loading cases…</div></div>
+      <div class="pagination" id="casesPagination" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ================= CAMPAIGNS VIEW ================= -->
+  <div id="view-campaigns" class="view">
+    <div class="card">
+      <h2>Detected Campaigns</h2>
+      <div class="muted" style="margin-bottom:12px;">Cases sharing a domain, IP, or URL are grouped into a campaign.</div>
+      <div id="campaignsWrap"><div class="empty">Loading campaigns…</div></div>
+    </div>
+    <div class="card" id="campaignDetailCard" style="display:none;">
+      <h2 id="campaignDetailTitle">Campaign detail</h2>
+      <div id="campaignDetailWrap"></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const API_BASE = "http://localhost:8000";
+let currentCaseId = null;
+
+
+// ---------- navigation ----------
+function showView(name) {
+  document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll("nav.toplevel button").forEach(b => b.classList.remove("active"));
+  document.getElementById("view-" + name).classList.add("active");
+  document.getElementById("nav-" + name).classList.add("active");
+  if (name === "analyze") loadCases();
+  if (name === "campaigns") loadCampaigns();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+  document.querySelector(`.tab-btn[data-tab="${tab}"]`).classList.add("active");
+  ["eml", "headers", "text"].forEach(t => {
+    document.getElementById("tab-" + t).style.display = (t === tab) ? "block" : "none";
+  });
+}
+
+// ---------- drag & drop ----------
+const dropzone = document.getElementById("dropzone");
+const emlFileInput = document.getElementById("emlFile");
+["dragenter", "dragover"].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add("drag"); })
+);
+["dragleave", "drop"].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove("drag"); })
+);
+dropzone.addEventListener("drop", e => {
+  if (e.dataTransfer.files.length) {
+    emlFileInput.files = e.dataTransfer.files;
+    document.getElementById("dropzoneLabel").textContent = e.dataTransfer.files[0].name;
+  }
+});
+emlFileInput.addEventListener("change", () => {
+  if (emlFileInput.files.length) {
+    document.getElementById("dropzoneLabel").textContent = emlFileInput.files[0].name;
+  }
+});
+
+// ---------- analyze submission ----------
+async function submitEml() {
+  const file = emlFileInput.files[0];
+  if (!file) { showError("Please choose an .eml file first."); return; }
+  const formData = new FormData();
+  formData.append("file", file);
+  await runAnalysis(() => fetch(`${API_BASE}/analyze/eml`, { method: "POST", body: formData }));
+}
+
+async function submitPaste(mode) {
+  const raw_text = mode === "headers"
+    ? document.getElementById("headersInput").value
+    : document.getElementById("textInput").value;
+  if (!raw_text.trim()) { showError("Please paste some content first."); return; }
+  await runAnalysis(() => fetch(`${API_BASE}/analyze/paste`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ raw_text, mode }),
+  }));
+}
+
+function showError(msg) {
+  document.getElementById("analyzeError").innerHTML = `<div class="error-box">${escapeHtml(msg)}</div>`;
+}
+
+async function runAnalysis(fetchFn) {
+  document.getElementById("analyzeError").innerHTML = "";
+  document.getElementById("results").style.display = "none";
+  document.getElementById("loadingIndicator").style.display = "block";
+  try {
+    const resp = await fetchFn();
+    const data = await resp.json();
+    if (!resp.ok) {
+      showError(data.detail || "Analysis failed.");
+      return;
+    }
+    renderResults(data);
+  } catch (err) {
+    showError("Could not reach the backend at " + API_BASE + ". Is it running? (" + err.message + ")");
+  } finally {
+    document.getElementById("loadingIndicator").style.display = "none";
+  }
+}
+
+// ---------- rendering ----------
+function verdictColor(v) {
+  return { LOW: "#3ecf8e", MEDIUM: "#f5b942", HIGH: "#ff8a4c", CRITICAL: "#ff5c5c" }[v] || "#5b8cff";
+}
+
+function renderResults(data) {
+  document.getElementById("results").style.display = "block";
+  document.getElementById("limitedForensicsNotice").style.display = data.limited_forensics ? "block" : "none";
+
+  const score = data.scoring.score;
+  const verdict = data.scoring.verdict;
+  document.getElementById("scoreNum").textContent = score;
+  const pill = document.getElementById("verdictPill");
+  pill.textContent = verdict;
+  pill.className = "verdict-pill verdict-" + verdict;
+
+  const circumference = 377;
+  const offset = circumference - (score / 100) * circumference;
+  const arc = document.getElementById("gaugeArc");
+  arc.style.stroke = verdictColor(verdict);
+  arc.setAttribute("stroke-dashoffset", offset);
+
+  document.getElementById("mlNote").textContent = data.scoring.ml_applied
+    ? "ML model classified this message's content (primary content signal)."
+    : "ML model unavailable — structural forensics only (no keyword fallback).";
+
+  const reasonsList = document.getElementById("reasonsList");
+  reasonsList.innerHTML = "";
+  (data.scoring.reasons || []).forEach(r => {
+    const li = document.createElement("li");
+    li.textContent = r;
+    reasonsList.appendChild(li);
+  });
+  if (!data.scoring.reasons || data.scoring.reasons.length === 0) {
+    reasonsList.innerHTML = '<li style="border-color:#3ecf8e;">No suspicious signals detected.</li>';
+  }
+
+  document.getElementById("mlExplanation").textContent = data.scoring.ml_explanation || "—";
+  const mlFeaturesList = document.getElementById("mlFeaturesList");
+  mlFeaturesList.innerHTML = "";
+  (data.scoring.ml_top_features || []).forEach(([phrase, weight]) => {
+    const li = document.createElement("li");
+    li.textContent = `'${phrase}' (weight ${Number(weight).toFixed(3)})`;
+    mlFeaturesList.appendChild(li);
+  });
+
+  const rec = data.recommendations || {};
+  document.getElementById("recSummary").textContent = rec.summary || "—";
+  const recActionsList = document.getElementById("recActionsList");
+  recActionsList.innerHTML = "";
+  (rec.actions || []).forEach(a => {
+    const li = document.createElement("li");
+    li.textContent = a;
+    recActionsList.appendChild(li);
+  });
+  document.getElementById("recAttributionNote").textContent = rec.attribution_note || "";
+
+  document.getElementById("attrLabel").textContent = data.attribution.label;
+  document.getElementById("attrConfidence").textContent = data.attribution.confidence + "%";
+  document.getElementById("attrSignals").textContent =
+    (data.attribution.corroborating_signals || []).join(", ") || "—";
+
+  const analysis = data.header_forensics ? data : data; // analysis fields are top-level via other endpoints too
+  document.getElementById("senderFrom").textContent = data.case_id ? (data.from_address || "—") : "—";
+
+  const auth = (data.header_forensics && data.header_forensics.authentication) || {};
+  document.getElementById("authSpf").textContent = auth.available ? (auth.spf || "—") : "unavailable (limited forensics)";
+  document.getElementById("authDkim").textContent = auth.available ? (auth.dkim || "—") : "unavailable (limited forensics)";
+  document.getElementById("authDmarc").textContent = auth.available ? (auth.dmarc || "—") : "unavailable (limited forensics)";
+
+  const returnPath = (data.header_forensics && data.header_forensics.return_path) || {};
+  document.getElementById("returnPathMismatch").innerHTML = returnPath.mismatch
+    ? `<span class="flag-true">Yes — ${escapeHtml(returnPath.return_path_domain || "")}</span>`
+    : (returnPath.return_path_domain ? '<span class="flag-false">No</span>' : "—");
+
+  const intel = data.intel || {};
+  document.getElementById("intelIp").textContent = intel.earliest_public_ip || "—";
+  const geo = intel.geoip || {};
+  document.getElementById("intelGeo").textContent = geo.country ? `${geo.city || "?"}, ${geo.country}` : "unavailable";
+  document.getElementById("intelOrg").textContent = geo.isp || geo.org || "unavailable";
+  document.getElementById("intelTor").innerHTML = flagCell(intel.is_tor_exit_node);
+  document.getElementById("intelVpn").innerHTML = flagCell(intel.is_known_vpn);
+  document.getElementById("intelCloud").innerHTML = flagCell(intel.is_cloud_hosting);
+  const whois = intel.whois || {};
+  document.getElementById("intelWhois").textContent = whois.domain_age_days != null
+    ? `${whois.domain_age_days} day(s) (registrar: ${whois.registrar || "?"})` : "unavailable";
+
+  // relay chain
+  const relayWrap = document.getElementById("relayChain");
+  const hops = (data.header_forensics && data.header_forensics.relay_chain && data.header_forensics.relay_chain.hops) || [];
+  if (hops.length) {
+    relayWrap.innerHTML = hops.map(h => `
+      <div class="hop">
+        <span class="idx">${h.hop_index}</span>
+        <div>
+          <div>${escapeHtml(h.from_host || "unknown")} → ${escapeHtml(h.by_host || "unknown")} ${h.ip ? "(" + h.ip + ")" : ""}</div>
+          ${h.label ? `<div class="label">${escapeHtml(h.label)}</div>` : ""}
+        </div>
+      </div>`).join("");
+  } else {
+    relayWrap.innerHTML = '<div class="muted">No relay chain available for this input mode.</div>';
+  }
+
+  // URLs
+  const urlWrap = document.getElementById("urlIndicators");
+  const urls = (data.url_analysis || []).filter(u => u.signals && u.signals.length);
+  urlWrap.innerHTML = urls.length
+    ? "<strong>Suspicious URLs:</strong><ul class='reasons'>" +
+      urls.map(u => `<li>${escapeHtml(u.host)} — ${u.signals.join(", ")}</li>`).join("") + "</ul>"
+    : "No suspicious URLs found.";
+
+  // Attachments
+  const attWrap = document.getElementById("attachmentIndicators");
+  const atts = data.attachment_analysis || [];
+  attWrap.innerHTML = atts.length
+    ? "<strong>Attachments:</strong><ul class='reasons'>" +
+      atts.map(a => `<li>${escapeHtml(a.filename)} — ${a.is_high_risk ? '<span class="flag-true">HIGH RISK</span>' : '<span class="flag-false">clean</span>'}</li>`).join("") + "</ul>"
+    : "No attachments.";
+
+  document.getElementById("caseId").textContent = data.case_id;
+  document.getElementById("caseCampaign").textContent = data.campaign && data.campaign.campaign_id
+    ? `${data.campaign.campaign_id} (${data.campaign.related_case_count} related case(s))`
+    : "Not correlated with other cases";
+
+  currentCaseId = data.case_id || null;
+  document.getElementById("downloadReportBtn").disabled = !currentCaseId;
+
+  // Keep the merged case list in sync with the new analysis
+  loadCases();
+}
+
+// ---------- PDF report: view + download ----------
+function reportFilename(caseId) {
+  return `forensic-report-${caseId}.pdf`;
+}
+
+async function fetchReportBlob(caseId) {
+  const resp = await fetch(`${API_BASE}/cases/${caseId}/report`);
+  if (!resp.ok) {
+    let detail = `Server returned ${resp.status}`;
+    try { const j = await resp.json(); if (j.detail) detail = j.detail; } catch {}
+    throw new Error(detail);
+  }
+  return await resp.blob();
+}
+
+async function downloadReport(caseId, btn) {
+  if (!caseId) return;
+  const originalLabel = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = "Preparing…"; }
+  try {
+    const blob = await fetchReportBlob(caseId);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = reportFilename(caseId);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } catch (err) {
+    alert("Could not download the report: " + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; if (originalLabel) btn.innerHTML = originalLabel; }
+  }
+}
+
+function flagCell(val) {
+  if (val === true) return '<span class="flag-true">Yes</span>';
+  if (val === false) return '<span class="flag-false">No</span>';
+  return "unknown";
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str == null ? "" : String(str);
+  return div.innerHTML;
+}
+
+// ---------- case list: pagination + delete ----------
+const PAGE_SIZE = 10;
+let allCases = [];
+let currentPage = 1;
+
+function onFilterChange() {
+  currentPage = 1;
+  loadCases();
+}
+
+async function loadCases() {
+  const wrap = document.getElementById("casesTableWrap");
+  const pager = document.getElementById("casesPagination");
+  wrap.innerHTML = '<div class="empty">Loading cases…</div>';
+  pager.style.display = "none";
+  const verdict = document.getElementById("verdictFilter").value;
+  try {
+    const url = verdict ? `${API_BASE}/cases?verdict=${verdict}` : `${API_BASE}/cases`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    allCases = data.cases || [];
+    if (allCases.length === 0) {
+      wrap.innerHTML = '<div class="empty">No cases yet. Analyze an email to get started.</div>';
+      return;
+    }
+    const maxPage = Math.max(1, Math.ceil(allCases.length / PAGE_SIZE));
+    if (currentPage > maxPage) currentPage = maxPage;
+    renderCasesPage();
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-box">Could not load cases: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderCasesPage() {
+  const wrap = document.getElementById("casesTableWrap");
+  const pager = document.getElementById("casesPagination");
+  const total = allCases.length;
+  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageItems = allCases.slice(start, start + PAGE_SIZE);
+
+  wrap.innerHTML = `
+    <table class="cases">
+      <thead><tr>
+        <th>Created</th><th>From</th><th>Subject</th><th>Score</th><th>Verdict</th><th>Attribution</th><th>Campaign</th><th class="report-col">Actions</th>
+      </tr></thead>
+      <tbody>
+        ${pageItems.map(c => `
+          <tr onclick="openCase('${c.id}')">
+            <td>${formatDate(c.created_at)}</td>
+            <td>${escapeHtml(c.from_address || "—")}</td>
+            <td>${escapeHtml(c.subject || "—")}</td>
+            <td>${c.threat_score}</td>
+            <td><span class="verdict-pill verdict-${c.verdict}">${c.verdict}</span></td>
+            <td>${escapeHtml(c.attribution_label || "—")}</td>
+            <td>${c.campaign_id ? escapeHtml(c.campaign_id) : "—"}</td>
+            <td class="report-col" onclick="event.stopPropagation()">
+              <button class="icon-btn" title="Download PDF report" onclick="downloadReport('${c.id}', this)">⬇</button>
+              <button class="icon-btn danger" title="Delete report" onclick="deleteCase('${c.id}', this)">🗑</button>
+            </td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+
+  if (total <= PAGE_SIZE) {
+    pager.style.display = "none";
+    return;
+  }
+  pager.style.display = "flex";
+  const pageBtns = [];
+  for (let p = 1; p <= maxPage; p++) {
+    pageBtns.push(`<button class="${p === currentPage ? 'active' : ''}" onclick="goToPage(${p})">${p}</button>`);
+  }
+  pager.innerHTML = `
+    <div class="page-info">Showing ${start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}</div>
+    <div class="page-btns">
+      <button onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? "disabled" : ""}>‹ Prev</button>
+      ${pageBtns.join("")}
+      <button onclick="goToPage(${currentPage + 1})" ${currentPage === maxPage ? "disabled" : ""}>Next ›</button>
+    </div>`;
+}
+
+function goToPage(p) {
+  const maxPage = Math.max(1, Math.ceil(allCases.length / PAGE_SIZE));
+  currentPage = Math.min(Math.max(1, p), maxPage);
+  renderCasesPage();
+}
+
+async function deleteCase(caseId, btn) {
+  if (!confirm(`Delete report ${caseId}? This cannot be undone.`)) return;
+  if (btn) btn.disabled = true;
+  try {
+    const resp = await fetch(`${API_BASE}/cases/${caseId}`, { method: "DELETE" });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.detail || `Server returned ${resp.status}`);
+    }
+    if (currentCaseId === caseId) {
+      currentCaseId = null;
+      document.getElementById("downloadReportBtn").disabled = true;
+    }
+    await loadCases();
+  } catch (err) {
+    alert("Could not delete the report: " + err.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+function formatDate(iso) {
+  try { return new Date(iso).toLocaleString(); } catch { return iso; }
+}
+
+async function openCase(caseId) {
+  window.open(`${API_BASE}/cases/${caseId}`, "_blank");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadCases();
+});
+
+// ---------- campaigns ----------
+async function loadCampaigns() {
+  const wrap = document.getElementById("campaignsWrap");
+  wrap.innerHTML = '<div class="empty">Loading campaigns…</div>';
+  document.getElementById("campaignDetailCard").style.display = "none";
+  try {
+    const resp = await fetch(`${API_BASE}/campaigns`);
+    const data = await resp.json();
+    if (!data.campaigns || data.campaigns.length === 0) {
+      wrap.innerHTML = '<div class="empty">No campaigns detected yet.</div>';
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="cases">
+        <thead><tr><th>Campaign ID</th><th>Cases</th><th>Last seen</th></tr></thead>
+        <tbody>
+          ${data.campaigns.map(c => `
+            <tr onclick="openCampaign('${c.campaign_id}')">
+              <td>${escapeHtml(c.campaign_id)}</td>
+              <td>${c.case_count}</td>
+              <td>${formatDate(c.last_seen)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-box">Could not load campaigns: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function openCampaign(campaignId) {
+  const card = document.getElementById("campaignDetailCard");
+  const wrap = document.getElementById("campaignDetailWrap");
+  document.getElementById("campaignDetailTitle").textContent = "Campaign: " + campaignId;
+  card.style.display = "block";
+  wrap.innerHTML = '<div class="empty">Loading…</div>';
+  try {
+    const resp = await fetch(`${API_BASE}/campaigns/${campaignId}`);
+    const data = await resp.json();
+    wrap.innerHTML = `
+      <div class="muted" style="margin-bottom:10px;">${escapeHtml(data.note)}</div>
+      <table class="cases">
+        <thead><tr><th>Created</th><th>From</th><th>Subject</th><th>Score</th><th>Verdict</th></tr></thead>
+        <tbody>
+          ${data.cases.map(c => `
+            <tr onclick="openCase('${c.id}')">
+              <td>${formatDate(c.created_at)}</td>
+              <td>${escapeHtml(c.from_address || "—")}</td>
+              <td>${escapeHtml(c.subject || "—")}</td>
+              <td>${c.threat_score}</td>
+              <td><span class="verdict-pill verdict-${c.verdict}">${c.verdict}</span></td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  } catch (err) {
+    wrap.innerHTML = `<div class="error-box">Could not load campaign: ${escapeHtml(err.message)}</div>`;
+  }
+}
+</script>
+</body>
+</html>

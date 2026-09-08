@@ -1,0 +1,7 @@
+# Install with: pip install -r requirements-train.txt --break-system-packages
+# Needed ONLY to run backend/ml/train.py (offline, one-time/occasional
+# retraining). Never installed on the machine running the live API --
+# see the note in requirements-ml.txt for why pandas was split out.
+pandas==2.2.2
+scikit-learn==1.9.0
+joblib==1.6.0

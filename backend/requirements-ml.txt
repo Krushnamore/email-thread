@@ -1,0 +1,25 @@
+# Install with: pip install -r requirements-ml.txt --break-system-packages
+# Needed for: the API's RUNTIME ML inference path (classifier.py), once
+# ENABLE_ML=True in config.py (joblib.load needs scikit-learn importable).
+#
+# NOTE: pandas is intentionally NOT here. It has no prebuilt wheel for
+# every Python version (e.g. 3.14 at time of writing), and pip resolves
+# a requirements file as a whole before installing anything -- so if
+# pandas falls back to a source build that needs a C/C++ toolchain the
+# machine doesn't have, the ENTIRE install aborts and scikit-learn /
+# joblib never get installed either, even though the running server
+# never imports pandas. That was a real, confirmed bug: classify()
+# would then always return None (fail open, per its contract), and
+# /health would report ml_enabled: true while nothing was ever
+# actually scored by the model, for a completely unrelated, avoidable
+# reason. pandas is ONLY needed to train a new model (see
+# requirements-train.txt) and is never imported at runtime.
+#
+# IMPORTANT: this version MUST match (or be >=) the scikit-learn version
+# used to pickle backend/ml/artifacts/model.pkl and vectorizer.pkl. A
+# mismatch raises AttributeError on load, and classify() silently
+# swallows that and returns None. If you retrain with train.py, re-pin
+# this to whatever `python3 -c "import sklearn; print(sklearn.__version__)"`
+# reports in your training environment.
+scikit-learn==1.9.0
+joblib==1.6.0

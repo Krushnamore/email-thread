@@ -1,0 +1,40 @@
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+backend/ven/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime data and local databases
+backend/stored_emails/*
+!backend/stored_emails/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Generated ML outputs and local caches
+backend/ml/artifacts/*
+!backend/ml/artifacts/metrics.json
+*.cache
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

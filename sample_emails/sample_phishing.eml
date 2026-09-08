@@ -1,0 +1,40 @@
+From: PayPal Security <support@paypa1-secure-verification.com>
+To: victim@example.com
+Subject: URGENT: Your account will be suspended - verify now
+Date: Mon, 01 Sep 2025 08:12:00 +0000
+Message-ID: <a1b2c3d4@paypa1-secure-verification.com>
+Return-Path: <bounce@paypa1-secure-verification.com>
+Authentication-Results: mx.google.com; spf=fail
+ smtp.mailfrom=paypa1-secure-verification.com; dkim=fail
+ header.d=paypa1-secure-verification.com; dmarc=fail
+Received: from mx.google.com by victim-mail.example.com; Mon, 01 Sep 2025
+ 08:12:05 +0000
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="===============2541633791041279084=="
+
+--===============2541633791041279084==
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Dear Customer,
+
+We have detected unusual activity on your PayPal account. Your account will b=
+e suspended within 24 hours unless you verify your identity immediately.
+
+Click here to login and confirm your password and card number:
+http://192.0.2.44/paypal-login-verify-account
+
+Failure to act now will result in permanent account closure.
+
+Sincerely,
+PayPal Security Team
+
+--===============2541633791041279084==
+Content-Type: application/octet-stream
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="Account_Statement.pdf.exe"
+MIME-Version: 1.0
+
+ZmFrZS1iaW5hcnktY29udGVudC1wbGFjZWhvbGRlcg==
+
+--===============2541633791041279084==--
