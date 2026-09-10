@@ -1,0 +1,6 @@
+{
+  "name": "Email Forensic Intelligence",
+  "description": "Enterprise email forensic analysis platform for phishing, spoofing, BEC detection, and relay path tracing",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -3,8 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Email Forensic Intelligence Platform</title>
+<title>Email Forensic Intelligence</title>
+<meta name="description" content="Enterprise email forensic analysis platform for phishing, spoofing, BEC detection, and relay path tracing">
+<meta property="og:title" content="Email Forensic Intelligence">
+<meta property="og:description" content="Enterprise email forensic analysis platform for phishing, spoofing, BEC detection, and relay path tracing">
  <link rel="stylesheet" href="index.css">
+ <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+ <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
   
@@ -32,7 +37,7 @@
     <div class="card" id="tab-eml">
       <h2>Upload an .eml file <small>Full forensic depth — all headers available</small></h2>
       <div class="dropzone" id="dropzone" onclick="document.getElementById('emlFile').click()">
-        <input type="file" id="emlFile" accept=".eml" />
+        <input type="file" id="emlFile" accept=".eml,message/rfc822,text/plain,*/*" onclick="event.stopPropagation()" />
         <div id="dropzoneLabel">Drop an .eml file here, or click to browse</div>
       </div>
       <button class="btn" onclick="submitEml()">Analyze .eml</button>
@@ -123,7 +128,7 @@
           <h2>Geo / Network Intelligence</h2>
           <table class="kv">
             <tr><td>Earliest public IP</td><td id="intelIp">—</td></tr>
-            <tr><td>Country / City</td><td id="intelGeo">—</td></tr>
+            <tr><td>City, Country</td><td id="intelGeo">—</td></tr>
             <tr><td>ISP / Org</td><td id="intelOrg">—</td></tr>
             <tr><td>Tor exit node</td><td id="intelTor">—</td></tr>
             <tr><td>Known VPN</td><td id="intelVpn">—</td></tr>
@@ -131,6 +136,7 @@
             <tr><td>Domain age</td><td id="intelWhois">—</td></tr>
           </table>
           <div class="disclaimer">Location reflects probable sending infrastructure only — never a confirmed attacker location.</div>
+          <div id="intelMap" style="height: 250px; width: 100%; border-radius: 8px; margin-top: 14px; display: none; z-index: 1;"></div>
         </div>
         <div class="card">
           <h2>Relay Path <small>oldest hop first</small></h2>
@@ -194,7 +200,7 @@
 </main>
 
 <script>
-const API_BASE = "http://localhost:8000";
+const API_BASE = "";
 let currentCaseId = null;
 
 
@@ -241,9 +247,10 @@ emlFileInput.addEventListener("change", () => {
 async function submitEml() {
   const file = emlFileInput.files[0];
   if (!file) { showError("Please choose an .eml file first."); return; }
+
   const formData = new FormData();
   formData.append("file", file);
-  await runAnalysis(() => fetch(`${API_BASE}/analyze/eml`, { method: "POST", body: formData }));
+  await runAnalysis(() => fetch(`${API_BASE}/api/process/eml`, { method: "POST", body: formData }));
 }
 
 async function submitPaste(mode) {
@@ -251,7 +258,7 @@ async function submitPaste(mode) {
     ? document.getElementById("headersInput").value
     : document.getElementById("textInput").value;
   if (!raw_text.trim()) { showError("Please paste some content first."); return; }
-  await runAnalysis(() => fetch(`${API_BASE}/analyze/paste`, {
+  await runAnalysis(() => fetch(`${API_BASE}/api/process/paste`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ raw_text, mode }),
@@ -266,16 +273,35 @@ async function runAnalysis(fetchFn) {
   document.getElementById("analyzeError").innerHTML = "";
   document.getElementById("results").style.display = "none";
   document.getElementById("loadingIndicator").style.display = "block";
+
+  let resp;
   try {
-    const resp = await fetchFn();
-    const data = await resp.json();
-    if (!resp.ok) {
-      showError(data.detail || "Analysis failed.");
-      return;
-    }
-    renderResults(data);
+    resp = await fetchFn();
   } catch (err) {
-    showError("Could not reach the backend at " + API_BASE + ". Is it running? (" + err.message + ")");
+    const target = API_BASE ? `at ${API_BASE}` : "server";
+    showError(`Could not reach the backend ${target}. Is it running? (${err.message})`);
+    document.getElementById("loadingIndicator").style.display = "none";
+    return;
+  }
+
+  if (!resp.ok) {
+    let errorDetail = `Server returned status ${resp.status}`;
+    try {
+      const errorJson = await resp.json();
+      if (errorJson.detail) errorDetail = errorJson.detail;
+    } catch (_) {}
+    showError(errorDetail);
+    document.getElementById("loadingIndicator").style.display = "none";
+    return;
+  }
+
+  try {
+    const data = await resp.json();
+    renderResults(data);
+    loadCases(); // refresh case history table
+  } catch (renderErr) {
+    console.error("Error processing analysis results:", renderErr);
+    showError(`Error processing analysis output: ${renderErr.message}`);
   } finally {
     document.getElementById("loadingIndicator").style.display = "none";
   }
@@ -343,8 +369,8 @@ function renderResults(data) {
   document.getElementById("attrSignals").textContent =
     (data.attribution.corroborating_signals || []).join(", ") || "—";
 
-  const analysis = data.header_forensics ? data : data; // analysis fields are top-level via other endpoints too
-  document.getElementById("senderFrom").textContent = data.case_id ? (data.from_address || "—") : "—";
+  document.getElementById("senderFrom").textContent = data.from_address || "—";
+  document.getElementById("senderDomain").textContent = data.from_domain || "—";
 
   const auth = (data.header_forensics && data.header_forensics.authentication) || {};
   document.getElementById("authSpf").textContent = auth.available ? (auth.spf || "—") : "unavailable (limited forensics)";
@@ -368,15 +394,92 @@ function renderResults(data) {
   document.getElementById("intelWhois").textContent = whois.domain_age_days != null
     ? `${whois.domain_age_days} day(s) (registrar: ${whois.registrar || "?"})` : "unavailable";
 
+  // Map Rendering with robust Leaflet error handling
+  const mapEl = document.getElementById("intelMap");
+  const hops = (data.header_forensics && data.header_forensics.relay_chain && data.header_forensics.relay_chain.hops) || [];
+
+  try {
+    if (typeof L !== 'undefined' && mapEl) {
+      if (window.mapMarkers) {
+        window.mapMarkers.forEach(m => m.remove());
+      }
+      if (window.mapPolyline) {
+        window.mapPolyline.remove();
+      }
+      window.mapMarkers = [];
+      
+      const latlngs = [];
+      
+      hops.forEach(h => {
+        if (h.geoip && h.geoip.lat && h.geoip.lon) {
+          const ll = [h.geoip.lat, h.geoip.lon];
+          latlngs.push(ll);
+        }
+      });
+
+      // Fallback to primary IP if no hops had geodata
+      if (latlngs.length === 0 && geo.lat && geo.lon) {
+        latlngs.push([geo.lat, geo.lon]);
+      }
+
+      if (latlngs.length > 0) {
+        mapEl.style.display = "block";
+        if (!window.mapInstance) {
+          window.mapInstance = L.map('intelMap');
+          window.mapTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 20
+          }).addTo(window.mapInstance);
+        }
+
+        // Add markers
+        hops.forEach(h => {
+          if (h.geoip && h.geoip.lat && h.geoip.lon) {
+            const m = L.marker([h.geoip.lat, h.geoip.lon]).addTo(window.mapInstance)
+              .bindPopup(`<b>Hop ${h.hop_index}</b><br/>${escapeHtml(h.geoip.city || "Unknown")}, ${escapeHtml(h.geoip.country || "")}<br/>IP: ${h.ip}`);
+            window.mapMarkers.push(m);
+          }
+        });
+
+        if (hops.length === 0 && geo.lat && geo.lon) {
+          const m = L.marker([geo.lat, geo.lon]).addTo(window.mapInstance)
+            .bindPopup(`<b>Earliest IP</b><br/>${escapeHtml(geo.city || "Unknown")}, ${escapeHtml(geo.country || "")}`);
+          window.mapMarkers.push(m);
+        }
+        
+        if (latlngs.length > 1) {
+          window.mapPolyline = L.polyline(latlngs, {color: '#3b82f6', weight: 3, dashArray: '5, 10'}).addTo(window.mapInstance);
+          window.mapInstance.fitBounds(window.mapPolyline.getBounds(), { padding: [30, 30], maxZoom: 5 });
+        } else {
+          window.mapInstance.setView(latlngs[0], 5);
+        }
+        
+        setTimeout(() => {
+          if (window.mapInstance) window.mapInstance.invalidateSize();
+        }, 150);
+      } else {
+        mapEl.style.display = "none";
+      }
+    } else if (mapEl) {
+      mapEl.style.display = "none";
+    }
+  } catch (mapErr) {
+    console.warn("Map display error:", mapErr);
+    if (mapEl) mapEl.style.display = "none";
+  }
+
   // relay chain
   const relayWrap = document.getElementById("relayChain");
-  const hops = (data.header_forensics && data.header_forensics.relay_chain && data.header_forensics.relay_chain.hops) || [];
   if (hops.length) {
     relayWrap.innerHTML = hops.map(h => `
       <div class="hop">
         <span class="idx">${h.hop_index}</span>
-        <div>
-          <div>${escapeHtml(h.from_host || "unknown")} → ${escapeHtml(h.by_host || "unknown")} ${h.ip ? "(" + h.ip + ")" : ""}</div>
+        <div style="flex:1;">
+          <div style="font-weight: 500;">${escapeHtml(h.from_host || "unknown")} → ${escapeHtml(h.by_host || "unknown")} ${h.ip ? "<span style='color:#93c5fd;'>(" + escapeHtml(h.ip) + ")</span>" : ""}</div>
+          ${h.resolved_from_host ? `<div class="muted" style="font-size:0.8em; color: #60a5fa; margin-top:2px;">⚡ Resolved host IP via DNS: ${escapeHtml(h.resolved_from_host)}</div>` : ""}
+          ${h.geoip && h.geoip.country ? `<div class="muted" style="font-size:0.85em; margin-top:2px; color: #4ade80;">📍 ${escapeHtml(h.geoip.city || "Unknown")}, ${escapeHtml(h.geoip.country)} (${escapeHtml(h.geoip.isp || "")})</div>` : ""}
+          ${!h.geoip && h.network_type ? `<div class="muted" style="font-size:0.82em; margin-top:2px; color: #94a3b8;">🔒 ${escapeHtml(h.network_type)}</div>` : ""}
           ${h.label ? `<div class="label">${escapeHtml(h.label)}</div>` : ""}
         </div>
       </div>`).join("");
@@ -418,7 +521,7 @@ function reportFilename(caseId) {
 }
 
 async function fetchReportBlob(caseId) {
-  const resp = await fetch(`${API_BASE}/cases/${caseId}/report`);
+  const resp = await fetch(`${API_BASE}/api/cases/${caseId}/report`);
   if (!resp.ok) {
     let detail = `Server returned ${resp.status}`;
     try { const j = await resp.json(); if (j.detail) detail = j.detail; } catch {}
@@ -477,7 +580,7 @@ async function loadCases() {
   pager.style.display = "none";
   const verdict = document.getElementById("verdictFilter").value;
   try {
-    const url = verdict ? `${API_BASE}/cases?verdict=${verdict}` : `${API_BASE}/cases`;
+    const url = verdict ? `${API_BASE}/api/cases?verdict=${verdict}` : `${API_BASE}/api/cases`;
     const resp = await fetch(url);
     const data = await resp.json();
     allCases = data.cases || [];
@@ -552,7 +655,7 @@ async function deleteCase(caseId, btn) {
   if (!confirm(`Delete report ${caseId}? This cannot be undone.`)) return;
   if (btn) btn.disabled = true;
   try {
-    const resp = await fetch(`${API_BASE}/cases/${caseId}`, { method: "DELETE" });
+    const resp = await fetch(`${API_BASE}/api/cases/${caseId}`, { method: "DELETE" });
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       throw new Error(data.detail || `Server returned ${resp.status}`);
@@ -573,7 +676,19 @@ function formatDate(iso) {
 }
 
 async function openCase(caseId) {
-  window.open(`${API_BASE}/cases/${caseId}`, "_blank");
+  try {
+    const resp = await fetch(`${API_BASE}/api/cases/${caseId}`);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.details && data.details.analysis) {
+        renderResults(data.details.analysis);
+        showView('analyze');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not open case:", err);
+  }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -586,7 +701,7 @@ async function loadCampaigns() {
   wrap.innerHTML = '<div class="empty">Loading campaigns…</div>';
   document.getElementById("campaignDetailCard").style.display = "none";
   try {
-    const resp = await fetch(`${API_BASE}/campaigns`);
+    const resp = await fetch(`${API_BASE}/api/campaigns`);
     const data = await resp.json();
     if (!data.campaigns || data.campaigns.length === 0) {
       wrap.innerHTML = '<div class="empty">No campaigns detected yet.</div>';
@@ -616,7 +731,7 @@ async function openCampaign(campaignId) {
   card.style.display = "block";
   wrap.innerHTML = '<div class="empty">Loading…</div>';
   try {
-    const resp = await fetch(`${API_BASE}/campaigns/${campaignId}`);
+    const resp = await fetch(`${API_BASE}/api/campaigns/${campaignId}`);
     const data = await resp.json();
     wrap.innerHTML = `
       <div class="muted" style="margin-bottom:10px;">${escapeHtml(data.note)}</div>
