@@ -1,0 +1,34 @@
+Delivered-To: recipient@example.com
+Received: from mail.google.com (mail.google.com. [209.85.220.65])
+        by mx.google.com with ESMTPS id abcdef12345
+        for <recipient@example.com>;
+        Thu, 10 Sep 2026 12:00:05 -0700 (PDT)
+Received: from aws-relay.cloud (aws-relay.cloud. [3.80.0.0])
+        by mail.google.com with ESMTPS id zxy987
+        for <recipient@example.com>;
+        Thu, 10 Sep 2026 12:00:03 -0700 (PDT)
+Received: from anonymous.vpn-tor.net (tor-exit-1.dfri.se. [171.25.193.25])
+        by aws-relay.cloud with ESMTP id tor123;
+        Thu, 10 Sep 2026 12:00:01 -0700 (PDT)
+Received: from desktop-attacker (unknown [105.112.0.1])
+        by anonymous.vpn-tor.net with ESMTPSA id start123;
+        Thu, 10 Sep 2026 11:59:58 -0700 (PDT)
+Received: from [192.168.1.10] (localhost [192.168.1.10])
+        by desktop-attacker with HTTP;
+        Thu, 10 Sep 2026 11:59:55 -0700 (PDT)
+From: "Security Update" <admin@paypai.com>
+To: recipient@example.com
+Subject: URGENT: Your Account Will Be Suspended
+Date: Thu, 10 Sep 2026 11:59:50 -0700
+Message-ID: <threat-demo@paypai.com>
+
+Dear Customer,
+
+We noticed suspicious login attempts from a foreign IP address.
+To prevent account suspension, please verify your identity immediately:
+http://verify-paypai-account-update.xyz/login
+
+Failure to verify within 24 hours will result in permanent closure.
+
+Regards,
+Security Team

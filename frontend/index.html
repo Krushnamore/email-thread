@@ -113,6 +113,7 @@
         <div class="card">
           <h2>Sender &amp; Authentication</h2>
           <table class="kv">
+            <tr><td>Date</td><td id="emailDate">—</td></tr>
             <tr><td>From</td><td id="senderFrom">—</td></tr>
             <tr><td>From domain</td><td id="senderDomain">—</td></tr>
             <tr><td>SPF</td><td id="authSpf">—</td></tr>
@@ -136,7 +137,7 @@
             <tr><td>Domain age</td><td id="intelWhois">—</td></tr>
           </table>
           <div class="disclaimer">Location reflects probable sending infrastructure only — never a confirmed attacker location.</div>
-          <div id="intelMap" style="height: 250px; width: 100%; border-radius: 8px; margin-top: 14px; display: none; z-index: 1;"></div>
+          <div id="intelMap" style="height: 400px; width: 100%; border-radius: 8px; margin-top: 14px; display: none; z-index: 1;"></div>
         </div>
         <div class="card">
           <h2>Relay Path <small>oldest hop first</small></h2>
@@ -296,15 +297,46 @@ async function runAnalysis(fetchFn) {
   }
 
   try {
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await resp.text();
+      if (text.includes("Cookie check") || text.includes("__cookie_check") || resp.redirected) {
+        throw new Error("Your session has expired or third-party cookies are blocked. Please refresh the page or open the app in a new tab to re-authenticate.");
+      }
+      throw new Error(`Server returned an invalid non-JSON response. Please check if the backend is running properly. (Response snippet: ${text.substring(0, 40)}...)`);
+    }
     const data = await resp.json();
     renderResults(data);
     loadCases(); // refresh case history table
+    showToast(data.scoring.verdict, data.scoring.score, data.subject);
   } catch (renderErr) {
     console.error("Error processing analysis results:", renderErr);
     showError(`Error processing analysis output: ${renderErr.message}`);
   } finally {
     document.getElementById("loadingIndicator").style.display = "none";
   }
+}
+
+
+// ---------- real-time alerts ----------
+function showToast(verdict, score, subject) {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+  const toast = document.createElement('div');
+  const level = (verdict || 'low').toLowerCase();
+  toast.className = `toast toast-${level}`;
+  let title = "Real-Time Alert";
+  if (verdict === 'HIGH' || verdict === 'CRITICAL') {
+    title = `High-Risk Email Blocked! (${score}/100)`;
+  } else {
+    title = `Email Analyzed (${verdict})`;
+  }
+  toast.innerHTML = `<div class="toast-title">${title}</div><div class="toast-msg">Subject: ${escapeHtml(subject)}</div>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.animation = 'slideOut 0.3s ease-in forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
 }
 
 // ---------- rendering ----------
@@ -369,6 +401,7 @@ function renderResults(data) {
   document.getElementById("attrSignals").textContent =
     (data.attribution.corroborating_signals || []).join(", ") || "—";
 
+  document.getElementById("emailDate").textContent = data.email_date || "—";
   document.getElementById("senderFrom").textContent = data.from_address || "—";
   document.getElementById("senderDomain").textContent = data.from_domain || "—";
 
@@ -425,7 +458,7 @@ function renderResults(data) {
       if (latlngs.length > 0) {
         mapEl.style.display = "block";
         if (!window.mapInstance) {
-          window.mapInstance = L.map('intelMap');
+          window.mapInstance = L.map('intelMap', { scrollWheelZoom: false });
           window.mapTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; OpenStreetMap &copy; CARTO',
             subdomains: 'abcd',
@@ -433,24 +466,10 @@ function renderResults(data) {
           }).addTo(window.mapInstance);
         }
 
-        // Add markers
-        hops.forEach(h => {
-          if (h.geoip && h.geoip.lat && h.geoip.lon) {
-            const m = L.marker([h.geoip.lat, h.geoip.lon]).addTo(window.mapInstance)
-              .bindPopup(`<b>Hop ${h.hop_index}</b><br/>${escapeHtml(h.geoip.city || "Unknown")}, ${escapeHtml(h.geoip.country || "")}<br/>IP: ${h.ip}`);
-            window.mapMarkers.push(m);
-          }
-        });
-
-        if (hops.length === 0 && geo.lat && geo.lon) {
-          const m = L.marker([geo.lat, geo.lon]).addTo(window.mapInstance)
-            .bindPopup(`<b>Earliest IP</b><br/>${escapeHtml(geo.city || "Unknown")}, ${escapeHtml(geo.country || "")}`);
-          window.mapMarkers.push(m);
-        }
-        
+        // Set bounds immediately so the map doesn't jump
         if (latlngs.length > 1) {
-          window.mapPolyline = L.polyline(latlngs, {color: '#3b82f6', weight: 3, dashArray: '5, 10'}).addTo(window.mapInstance);
-          window.mapInstance.fitBounds(window.mapPolyline.getBounds(), { padding: [30, 30], maxZoom: 5 });
+          const tempBounds = L.polyline(latlngs).getBounds();
+          window.mapInstance.fitBounds(tempBounds, { padding: [80, 80], maxZoom: 5 });
         } else {
           window.mapInstance.setView(latlngs[0], 5);
         }
@@ -458,6 +477,58 @@ function renderResults(data) {
         setTimeout(() => {
           if (window.mapInstance) window.mapInstance.invalidateSize();
         }, 150);
+
+        window.mapPolyline = L.polyline([], {
+          color: '#ff8a4c', 
+          weight: 3, 
+          dashArray: '8, 12',
+          className: 'trace-path-animated'
+        }).addTo(window.mapInstance);
+
+        // Animate sequence
+        window.mapAnimId = (window.mapAnimId || 0) + 1;
+        const currentAnimId = window.mapAnimId;
+        
+        (async () => {
+          const drawnLatLngs = [];
+          for (const h of hops) {
+            if (h.geoip && h.geoip.lat && h.geoip.lon) {
+              await new Promise(r => setTimeout(r, 800)); // Delay between hops for visual impact
+              if (currentAnimId !== window.mapAnimId) return; // abort if new analysis started
+              
+              const isExternal = h.network_type !== 'Internal' && h.network_type !== 'Private';
+              const htmlNode = `<div class="node-content"><div class="node-badge">Hop ${h.hop_index}</div><div class="node-host">${escapeHtml(h.from_host && h.from_host !== "unknown" ? h.from_host : (h.by_host || "unknown"))}</div><div class="node-ip">${escapeHtml(h.ip || "unknown")}</div><div class="node-city">${escapeHtml(h.geoip.city || "Unknown")}</div></div>`;
+              const icon = L.divIcon({
+                className: isExternal ? 'custom-graph-node is-external' : 'custom-graph-node',
+                html: htmlNode,
+                iconSize: [200, 90],
+                iconAnchor: [100, 45]
+              });
+              const m = L.marker([h.geoip.lat, h.geoip.lon], {icon}).addTo(window.mapInstance)
+                .bindPopup(`<div style="font-family:sans-serif;"><b>Hop ${h.hop_index}</b><br/><b>IP:</b> ${escapeHtml(h.ip || "unknown")}<br/><b>Host:</b> ${escapeHtml(h.from_host !== "unknown" ? h.from_host : h.by_host)}<br/><b>Network:</b> ${escapeHtml(h.network_type || "Public")}</div>`);
+              window.mapMarkers.push(m);
+              
+              drawnLatLngs.push([h.geoip.lat, h.geoip.lon]);
+              window.mapPolyline.setLatLngs(drawnLatLngs);
+              
+              // Move map smoothly if we want, or just let the fitBounds hold it.
+              // Since we fitBounds ahead of time, it stays steady.
+            }
+          }
+          
+          if (hops.length === 0 && geo.lat && geo.lon) {
+            await new Promise(r => setTimeout(r, 800));
+            if (currentAnimId !== window.mapAnimId) return;
+            const icon = L.divIcon({
+              className: 'custom-graph-node is-external',
+              html: `<div class="node-content"><div class="node-badge">Earliest IP</div><div class="node-host">Origin</div><div class="node-ip">${escapeHtml(geo.ip || "unknown")}</div><div class="node-city">${escapeHtml(geo.city || "Unknown")}</div></div>`,
+              iconSize: [200, 90],
+              iconAnchor: [100, 45]
+            });
+            const m = L.marker([geo.lat, geo.lon], {icon}).addTo(window.mapInstance).bindPopup(`<div style="font-family:sans-serif;"><b>Earliest IP</b><br/><b>IP:</b> ${escapeHtml(geo.ip || "unknown")}</div>`);
+            window.mapMarkers.push(m);
+          }
+        })();
       } else {
         mapEl.style.display = "none";
       }
@@ -472,17 +543,27 @@ function renderResults(data) {
   // relay chain
   const relayWrap = document.getElementById("relayChain");
   if (hops.length) {
-    relayWrap.innerHTML = hops.map(h => `
-      <div class="hop">
-        <span class="idx">${h.hop_index}</span>
-        <div style="flex:1;">
-          <div style="font-weight: 500;">${escapeHtml(h.from_host || "unknown")} → ${escapeHtml(h.by_host || "unknown")} ${h.ip ? "<span style='color:#93c5fd;'>(" + escapeHtml(h.ip) + ")</span>" : ""}</div>
-          ${h.resolved_from_host ? `<div class="muted" style="font-size:0.8em; color: #60a5fa; margin-top:2px;">⚡ Resolved host IP via DNS: ${escapeHtml(h.resolved_from_host)}</div>` : ""}
-          ${h.geoip && h.geoip.country ? `<div class="muted" style="font-size:0.85em; margin-top:2px; color: #4ade80;">📍 ${escapeHtml(h.geoip.city || "Unknown")}, ${escapeHtml(h.geoip.country)} (${escapeHtml(h.geoip.isp || "")})</div>` : ""}
-          ${!h.geoip && h.network_type ? `<div class="muted" style="font-size:0.82em; margin-top:2px; color: #94a3b8;">🔒 ${escapeHtml(h.network_type)}</div>` : ""}
-          ${h.label ? `<div class="label">${escapeHtml(h.label)}</div>` : ""}
+    relayWrap.innerHTML = `<div class="relay-graph">` + hops.map(h => {
+      const isExternal = h.network_type !== 'Internal' && h.network_type !== 'Private';
+      const dotClass = isExternal ? 'external' : 'internal';
+      return `
+      <div class="relay-node">
+        <div class="relay-dot ${dotClass}"></div>
+        <div class="relay-content">
+          <div class="relay-title">
+            <span>${escapeHtml(h.from_host || "unknown")} → ${escapeHtml(h.by_host || "unknown")}</span>
+            <span style="color:var(--muted); font-size:11px;">Hop ${h.hop_index}</span>
+          </div>
+          <div class="relay-subtitle">
+            ${h.ip ? `IP: <span style="color:#93c5fd;">${escapeHtml(h.ip)}</span>` : ""}
+            ${h.resolved_from_host ? `<br/>⚡ DNS Resolved: ${escapeHtml(h.resolved_from_host)}` : ""}
+            ${h.geoip && h.geoip.country ? `<br/>📍 ${escapeHtml(h.geoip.city || "Unknown")}, ${escapeHtml(h.geoip.country)} (${escapeHtml(h.geoip.isp || "")})` : ""}
+            ${!h.geoip && h.network_type ? `<br/>🔒 ${escapeHtml(h.network_type)}` : ""}
+            ${h.label ? `<br/><span style="color:var(--accent);">${escapeHtml(h.label)}</span>` : ""}
+          </div>
         </div>
-      </div>`).join("");
+      </div>`;
+    }).join("") + `</div>`;
   } else {
     relayWrap.innerHTML = '<div class="muted">No relay chain available for this input mode.</div>';
   }
@@ -582,6 +663,11 @@ async function loadCases() {
   try {
     const url = verdict ? `${API_BASE}/api/cases?verdict=${verdict}` : `${API_BASE}/api/cases`;
     const resp = await fetch(url);
+    const contentType = resp.headers.get("content-type") || "";
+    if (!resp.ok || !contentType.includes("application/json")) {
+       const text = await resp.text();
+       throw new Error(`Failed to load cases. Status: ${resp.status}. Content: ${text.substring(0, 50)}...`);
+    }
     const data = await resp.json();
     allCases = data.cases || [];
     if (allCases.length === 0) {
@@ -753,5 +839,6 @@ async function openCampaign(campaignId) {
   }
 }
 </script>
+<div id="toastContainer" class="toast-container"></div>
 </body>
 </html>

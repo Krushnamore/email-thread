@@ -114,7 +114,7 @@ function extractEarliestPublicIp(text) {
     }
   }
   
-  const receivedRegex = /^Received:\s+([^]*?)(?=\n[^\s]|$)/gmi;
+  const receivedRegex = /^Received:\s+([^]*?)(?=\r?\n[^\s\r\n]|$(?![\r\n]))/gmi;
   let match;
   const receivedBlocks = [];
   while ((match = receivedRegex.exec(headersPart)) !== null) {
@@ -197,6 +197,13 @@ async function processEmail(sourceData, filename = 'uploaded.eml') {
   const subjectMatch = headersPart.match(/^Subject:\s*([^\r\n]+(?:\r?\n[ \t]+[^\r\n]+)*)/mi);
   if (subjectMatch) {
     subject = subjectMatch[1].replace(/\r?\n[ \t]+/g, ' ').trim();
+  }
+
+  // Extract Date header
+  let emailDate = 'Unknown';
+  const dateMatch = headersPart.match(/^Date:\s*([^\r\n]+(?:\r?\n[ \t]+[^\r\n]+)*)/mi);
+  if (dateMatch) {
+    emailDate = dateMatch[1].replace(/\r?\n[ \t]+/g, ' ').trim();
   }
 
   // 3. Extract Authentication Status (SPF, DKIM, DMARC)
@@ -324,7 +331,7 @@ async function processEmail(sourceData, filename = 'uploaded.eml') {
   }
 
   // 7. Parse Received Headers for Relay Chain
-  const receivedRegex = /^Received:\s+([^]*?)(?=\n[^\s]|$)/gmi;
+  const receivedRegex = /^Received:\s+([^]*?)(?=\r?\n[^\s\r\n]|$(?![\r\n]))/gmi;
   let match;
   const receivedBlocks = [];
   while ((match = receivedRegex.exec(headersPart)) !== null) {
@@ -427,12 +434,14 @@ async function processEmail(sourceData, filename = 'uploaded.eml') {
     }
   }
 
+  score = Math.min(100, score);
   const analysisResult = {
     case_id: caseId,
     created_at: now,
     from_address: fromAddress,
     from_domain: fromDomain,
     subject: subject,
+    email_date: emailDate,
     scoring: {
       score,
       verdict,
@@ -483,6 +492,7 @@ async function processEmail(sourceData, filename = 'uploaded.eml') {
     sender_domain: fromDomain,
     from_address: fromAddress,
     subject: subject,
+    email_date: emailDate,
     threat_score: score,
     verdict,
     attribution_label: attributionLabel,

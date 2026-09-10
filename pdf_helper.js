@@ -166,7 +166,7 @@ export function generatePdf(doc, caseData) {
     ['From Domain', caseData.sender_domain],
     ['Return-Path Domain', returnPath],
     ['Subject', caseData.subject],
-    ['Date', '\u2014'],
+    ['Date', caseData.email_date || '\u2014'],
   ]);
 
   // ---------- Authentication ----------
